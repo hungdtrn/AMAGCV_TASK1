@@ -1,0 +1,116 @@
+import os
+import shutil
+import json
+import random
+import argparse
+from collections import defaultdict
+import numpy as np
+import cv2
+
+
+def coco_to_yolo(x1, y1, w, h, image_w, image_h):
+    return [((2*x1 + w)/(2*image_w)) , ((2*y1 + h)/(2*image_h)), w/image_w, h/image_h]
+
+def select_two_objects(box_list):
+    min_area, max_area = float("inf"), -float("inf")
+    min_box, max_box = None, None
+    for b in box_list:
+        
+        area = b["bbox"][-1] + b["bbox"][-2]
+        if area < min_area:
+            min_area = area
+            min_box = b
+        
+        if area > max_area:
+            max_area = area
+            max_box = b
+    
+    if min_area == max_area:
+        return None
+    
+    return [min_box, max_box]
+        
+def save(data_idx, boxPerImage, name, image_dir, data_dir, label_dir):
+    fnames = []
+    for i in data_idx:
+        basename = f"{i:012d}"
+        fnames.append(os.path.join(image_dir, f"{basename}.jpg"))
+        
+        img = cv2.imread(os.path.join(image_dir, f"{basename}.jpg"))
+        h, w = img.shape[:2]
+        boxes = boxPerImage[i]
+        txtLabel = []
+        for i, b in enumerate(boxes):
+            x, y, bw, bh = b["bbox"]
+            # cv2.rectangle(img, (int(x), int(y)), (int(x+bw), int(y+bh)), (0, 255, 0), 2)
+            x, y, bw, bh = coco_to_yolo(x, y, bw, bh, w, h)
+            txtLabel.append(" ".join([str(i)] + [str(i) for i in [x, y, bw, bh]]))
+        
+        # cv2.imshow("img", img)
+        # cv2.waitKey(0)
+
+        with open(os.path.join(label_dir, f"{basename}.txt"), "w") as f:
+            f.write("\n".join(txtLabel))
+            
+    with open(os.path.join(data_dir, f"{name}.txt"), "w") as f:
+        f.write("\n".join(fnames))
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--image_dir", type=str, default="./dataset/processed/images")
+    parser.add_argument("--data_dir", type=str, default="./dataset")
+    parser.add_argument("--output_dir")
+
+    args = parser.parse_args()
+    
+    os.makedirs(os.path.join(args.output_dir, "labels/train"), exist_ok=True)
+    os.makedirs(os.path.join(args.output_dir, "labels/val"), exist_ok=True)
+
+    annotation_dir_path = os.path.join(args.data_dir, "annotations")
+    with open(os.path.join(annotation_dir_path, "instances_val2017.json"), "r") as f:
+        annotations = json.load(f)
+                
+    
+    print(annotations["annotations"][0].keys())
+    # exit()
+    # Select the biggest and the smallest bounding boxes
+    boxPerImage = defaultdict(list)
+
+    for annotation in annotations["annotations"]:
+        boxPerImage[annotation["image_id"]].append(annotation)
+    
+    print(len(boxPerImage))
+    
+    tmp = {}
+    for k in boxPerImage:
+        boxes = select_two_objects(boxPerImage[k])
+        if boxes is not None:
+            tmp[k] = boxes
+    
+    boxPerImage = tmp
+    print(len(boxPerImage))    
+    
+    # Devide into train & val
+    class_cnt = defaultdict(list)
+    all, train = [], []
+    for k in boxPerImage:
+        for b in boxPerImage[k]:
+            class_cnt[b["category_id"]].append(k)
+        all.append(k)
+        
+    train_label, val_label = [], []
+    for k in class_cnt:
+        unique = np.unique(class_cnt[k])
+        np.random.shuffle(unique)
+        n_train = int(len(unique)*0.8)
+        train.extend([i for i in unique[:n_train]])
+        
+    all, train = set(all), set(train)
+    val = all.difference(train)
+    print(list(train)[:10])
+    print(len(all), len(train), len(val))
+
+        
+    # Save to files
+    save(train, boxPerImage, "train", args.image_dir, args.output_dir, os.path.join(args.output_dir, "labels"))
+    save(val, boxPerImage, "val", args.image_dir, args.output_dir, os.path.join(args.output_dir, "labels"))       

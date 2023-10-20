@@ -158,3 +158,11 @@ def kmean_anchors(path='./data/coco.yaml', n=9, img_size=640, thr=4.0, gen=1000,
                 print_results(k)
 
     return print_results(k)
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config_path", type=str)
+    args = parser.parse_args()
+    kmean_anchors(args.config_path)
+    
