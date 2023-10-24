@@ -8,4 +8,4 @@ test: ./dataset/processed_single_obj/val.txt
 nc: 1
 
 # class names
-names: [ 'object', "smallest", "largest"]
+names: [ 'object']

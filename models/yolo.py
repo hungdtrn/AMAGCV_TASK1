@@ -39,7 +39,7 @@ class Detect(nn.Module):
         self.register_buffer('anchor_grid', a.clone().view(self.nl, 1, -1, 1, 1, 2))  # shape(nl,1,na,1,1,2)
         self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
         # x = x.copy()  # for profiling
         z = []  # inference output
         self.training |= self.export
@@ -73,7 +73,7 @@ class Detect(nn.Module):
             out = torch.cat(z, 1)
         else:
             out = (torch.cat(z, 1), x)
-
+            
         return out
 
     @staticmethod
@@ -118,7 +118,7 @@ class IDetect(nn.Module):
         self.im = nn.ModuleList(ImplicitM(self.no * self.na) for _ in ch)
         
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
         # x = x.copy()  # for profiling
         z = []  # inference output
         self.training |= self.export
@@ -139,7 +139,7 @@ class IDetect(nn.Module):
 
         return x if self.training else (torch.cat(z, 1), x)
     
-    def fuseforward(self, x):
+    def fuseforward(self, x, **kwargs):
         # x = x.copy()  # for profiling
         z = []  # inference output
         self.training |= self.export
@@ -176,32 +176,6 @@ class IDetect(nn.Module):
         else:
             out = (torch.cat(z, 1), x)
 
-
-        conf_thres = 0.1
-        candidate = out[0][:, :, 4] > conf_thres
-        circumference = out[0][:, :, 2:4].sum(axis=2)
-        
-        if out[0].shape[-1] == 6:
-            min_circumference = torch.where(candidate, circumference, 1000).min(axis=1).values
-            max_circumference = torch.where(candidate, circumference, 0).max(axis=1).values
-            flag = (circumference == min_circumference) | (circumference == max_circumference)
-            out[0][:,  :, 4] = out[0][:,  :, 4] * flag.float()
-            out[0][:, :, 5] = 0
-            out= (torch.cat([out[0], (circumference == min_circumference).unsqueeze(-1), (circumference == max_circumference).unsqueeze(-1)], dim=-1),)
-        else:
-            smallest_score = out[0][:, :, 5:6]
-            largest_score = out[0][:, :, 6:7]
-            smallest_flag = smallest_score > largest_score
-            largest_flag = largest_score >= smallest_score
-            
-            smallest_candidate = candidate & smallest_flag.squeeze(-1)
-            largest_candidate = candidate & largest_flag.squeeze(-1)
-            min_circumference = torch.where(smallest_candidate, circumference, 1000).min(axis=1).values
-            max_circumference = torch.where(largest_candidate, circumference, 0).max(axis=1).values
-            flag = (circumference == min_circumference) | (circumference == max_circumference)
-            out[0][:,  :, 4] = out[0][:,  :, 4] * flag.float()
-
-    
         return out
     
     def fuse(self):

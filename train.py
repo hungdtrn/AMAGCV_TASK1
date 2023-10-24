@@ -77,7 +77,7 @@ def train(hyp, opt, device, tb_writer=None):
 
     nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
     names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
-    # assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
+    assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
 
     # Model
     pretrained = weights.endswith('.pt')
@@ -96,10 +96,7 @@ def train(hyp, opt, device, tb_writer=None):
             for name, param in model.named_parameters():
                 if not name.startswith('model.105'):
                     param.requires_grad = False
-        elif opt.freeze_all:
-            for name, param in model.named_parameters():
-                    param.requires_grad = False
-
+                    
         
         logger.info("Number of training parameters: {}".format(sum([np.prod(p.shape) for p in model.parameters() if p.requires_grad])))
         logger.info('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights))  # report
@@ -125,7 +122,7 @@ def train(hyp, opt, device, tb_writer=None):
     logger.info(f"Scaled weight_decay = {hyp['weight_decay']}")
 
     pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
-    for k, v in model.named_modules():
+    for k, v in model.named_modules():        
         if hasattr(v, 'bias') and isinstance(v.bias, nn.Parameter):
             pg2.append(v.bias)  # biases
         if isinstance(v, nn.BatchNorm2d):
@@ -188,7 +185,7 @@ def train(hyp, opt, device, tb_writer=None):
                 pg0.append(v.rbr_dense.weight_rbr_gconv_pw)
             if hasattr(v.rbr_dense, 'vector'):   
                 pg0.append(v.rbr_dense.vector)
-
+                
     if opt.adam:
         optimizer = optim.Adam(pg0, lr=hyp['lr0'], betas=(hyp['momentum'], 0.999))  # adjust beta1 to momentum
     else:
@@ -436,7 +433,8 @@ def train(hyp, opt, device, tb_writer=None):
                                                  wandb_logger=wandb_logger,
                                                  compute_loss=compute_loss,
                                                  is_coco=is_coco,
-                                                 v5_metric=opt.v5_metric)
+                                                 v5_metric=opt.v5_metric,
+                                                 process_type=opt.process_type)
 
             # Write
             with open(results_file, 'a') as f:
@@ -576,6 +574,8 @@ if __name__ == '__main__':
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--freeze', nargs='+', type=int, default=[0], help='Freeze layers: backbone of yolov7=50, first3=0 1 2')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--process_type', default="pre", help='assume maximum recall as 1.0 in AP calculation')
+
     opt = parser.parse_args()
 
     # Set DDP variables

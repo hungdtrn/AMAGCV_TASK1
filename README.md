@@ -21,26 +21,18 @@ The number of all data is 5000.
 - Convert the box format to the yolo format and normalize
 - IMPORTANT: Remove images that only have 1 bounding box because they will introduce noise.
 
+#### The distribution of the size of the bounding boxes.
+In the dataset, some smallest bounding boxes has area too small. These make it hard to detect and visualization. 
+We better remove these bounding bonxes.
+
 ### Train-test split
 - Split the training and validation. Need to ensure that there is no overlapping between the two sets.
 
 
-## Possible solutions:
+## Proposed solutions:
 ### Solution 1: No-finetuning, only post-processing
-### Solution 2: Fine-tuning with two classes
-#### Solution 2.1. Fine-tuning the whole model
-- This can serve as the baseline
-- In the default model of YOLOV7, the anchors are automatically learned from the training data, so we hope that the model can learn a good set of achors for detecting the smallest and the largest objects.
-- 
+### Solution 2: Fine-tunning to detect largest and smallest objects, then post-processing
+### Solution 3: Fine-tuning to detect objects and non-objects, then post-processing
+### Pre-processing boxes before NMS vs Post-processing boxes after NMS
 
-#### Solution 2.2: Only Finetune the head
-- Due to the limited training data and a restricted training time of 20 epochs, it's not a good idea to fine-tuning the whole model. 
-- The training dataset used here is COCO, and the visual features are not significantly different from the pre-training data. We can reuse and freeze the backbone while fine-tuning only the model's head.
-- Experimental results demonstrate a slight improvement over fine-tuning the entire model, as expected.
-- However, from the visualization, below, it seems that fine-tuning only the model's head does not guarantee that the model will exclusively detect two objects.
-
-![alt text](https://github.com/hungdtrn/AMAGCV_TASK1/blob/main/public/finetune_head/horses.jpg?raw=true)
-![alt text](https://github.com/hungdtrn/AMAGCV_TASK1/blob/main/public/finetune_head/image1.jpg?raw=true)
-
-### Solution 3: Fine-tuning with only one class
-### Solution 4: Only fine-tune the Anchor boxes
+## Metrics and results
