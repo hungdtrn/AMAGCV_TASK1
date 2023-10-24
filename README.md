@@ -26,12 +26,14 @@ The number of all data is 5000.
 
 
 ## Possible solutions:
-### Solution 1: Finetuning the whole model - Baseline
+### Solution 1: No-finetuning, only post-processing
+### Solution 2: Fine-tuning with two classes
+#### Solution 2.1. Fine-tuning the whole model
 - This can serve as the baseline
 - In the default model of YOLOV7, the anchors are automatically learned from the training data, so we hope that the model can learn a good set of achors for detecting the smallest and the largest objects.
 - 
 
-### Solution 2: Only Finetune the head
+#### Solution 2.2: Only Finetune the head
 - Due to the limited training data and a restricted training time of 20 epochs, it's not a good idea to fine-tuning the whole model. 
 - The training dataset used here is COCO, and the visual features are not significantly different from the pre-training data. We can reuse and freeze the backbone while fine-tuning only the model's head.
 - Experimental results demonstrate a slight improvement over fine-tuning the entire model, as expected.
@@ -40,7 +42,5 @@ The number of all data is 5000.
 ![alt text](https://github.com/hungdtrn/AMAGCV_TASK1/blob/main/public/finetune_head/horses.jpg?raw=true)
 ![alt text](https://github.com/hungdtrn/AMAGCV_TASK1/blob/main/public/finetune_head/image1.jpg?raw=true)
 
-### Solution 3: Relativity-aware head
-- The sizes of the smallest and largest boxes vary depending on the images.
-- To determine whether a bounding box is the largest or smallest, we require a mechanism to consider all other bounding box candidates in the image.
-- Attention mechanism appears to be a promising choice for this task.
+### Solution 3: Fine-tuning with only one class
+### Solution 4: Only fine-tune the Anchor boxes

@@ -1,11 +1,13 @@
 # parameters
-nc: 1  # number of classes
+nc: 80  # number of classes
 depth_multiple: 1.0  # model depth multiple
 width_multiple: 1.0  # layer channel multiple
 
 # anchors
 anchors:
-  - [11,12,  31,31,  114,59,  65,108,  157,159,  191,327,  382,192,  347,390,  560,416]
+  - [12,16, 19,36, 40,28]  # P3/8
+  - [36,75, 76,55, 72,146]  # P4/16
+  - [142,110, 192,243, 459,401]  # P5/32
 
 # yolov7 backbone
 backbone:
@@ -134,5 +136,5 @@ head:
    [88, 1, RepConv, [512, 3, 1]],
    [101, 1, RepConv, [1024, 3, 1]],
 
-   [[102,103,104], 1, IDetect, [nc, anchors]],   # Detect(P3, P4, P5)
+   [[102,103,104], 1, IDetect_Attn, [nc, anchors]],   # Detect(P3, P4, P5)
   ]

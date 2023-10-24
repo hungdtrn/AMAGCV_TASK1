@@ -77,7 +77,7 @@ def train(hyp, opt, device, tb_writer=None):
 
     nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
     names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
-    assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
+    # assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
 
     # Model
     pretrained = weights.endswith('.pt')
@@ -85,6 +85,7 @@ def train(hyp, opt, device, tb_writer=None):
         with torch_distributed_zero_first(rank):
             attempt_download(weights)  # download if not found locally
         ckpt = torch.load(weights, map_location=device)  # load checkpoint
+        print(ckpt['model'].yaml)
         model = Model(opt.cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
         exclude = ['anchor'] if (opt.cfg or hyp.get('anchors')) and not opt.resume else []  # exclude keys
         state_dict = ckpt['model'].float().state_dict()  # to FP32
@@ -95,7 +96,10 @@ def train(hyp, opt, device, tb_writer=None):
             for name, param in model.named_parameters():
                 if not name.startswith('model.105'):
                     param.requires_grad = False
-                    
+        elif opt.freeze_all:
+            for name, param in model.named_parameters():
+                    param.requires_grad = False
+
         
         logger.info("Number of training parameters: {}".format(sum([np.prod(p.shape) for p in model.parameters() if p.requires_grad])))
         logger.info('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights))  # report
@@ -547,6 +551,7 @@ if __name__ == '__main__':
     parser.add_argument('--notest', action='store_true', help='only test final epoch')
     parser.add_argument('--noautoanchor', action='store_true', help='disable autoanchor check')
     parser.add_argument('--freeze_backbone', action='store_true', default=False, help='freeze the backbone')
+    parser.add_argument('--freeze_all', action='store_true', default=False, help='freeze the backbone')
     parser.add_argument('--evolve', action='store_true', help='evolve hyperparameters')
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
     parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')

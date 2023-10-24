@@ -33,7 +33,7 @@ class Detect(nn.Module):
         self.no = nc + 5  # number of outputs per anchor
         self.nl = len(anchors)  # number of detection layers
         self.na = len(anchors[0]) // 2  # number of anchors
-        self.grid = [torch.zeros(1)] * self.nl  # init grid
+        self.grid = [torch.zeros(1)] * self.nl   # init grid
         a = torch.tensor(anchors).float().view(self.nl, -1, 2)
         self.register_buffer('anchors', a)  # shape(nl,na,2)
         self.register_buffer('anchor_grid', a.clone().view(self.nl, 1, -1, 1, 1, 2))  # shape(nl,1,na,1,1,2)
@@ -94,6 +94,7 @@ class Detect(nn.Module):
         return (box, score)
 
 
+
 class IDetect(nn.Module):
     stride = None  # strides computed during build
     export = False  # onnx export
@@ -115,6 +116,7 @@ class IDetect(nn.Module):
         
         self.ia = nn.ModuleList(ImplicitA(x) for x in ch)
         self.im = nn.ModuleList(ImplicitM(self.no * self.na) for _ in ch)
+        
 
     def forward(self, x):
         # x = x.copy()  # for profiling
@@ -159,6 +161,7 @@ class IDetect(nn.Module):
                     xy = xy * (2. * self.stride[i]) + (self.stride[i] * (self.grid[i] - 0.5))  # new xy
                     wh = wh ** 2 * (4 * self.anchor_grid[i].data)  # new wh
                     y = torch.cat((xy, wh, conf), 4)
+                    
                 z.append(y.view(bs, -1, self.no))
 
         if self.training:
@@ -173,6 +176,32 @@ class IDetect(nn.Module):
         else:
             out = (torch.cat(z, 1), x)
 
+
+        conf_thres = 0.1
+        candidate = out[0][:, :, 4] > conf_thres
+        circumference = out[0][:, :, 2:4].sum(axis=2)
+        
+        if out[0].shape[-1] == 6:
+            min_circumference = torch.where(candidate, circumference, 1000).min(axis=1).values
+            max_circumference = torch.where(candidate, circumference, 0).max(axis=1).values
+            flag = (circumference == min_circumference) | (circumference == max_circumference)
+            out[0][:,  :, 4] = out[0][:,  :, 4] * flag.float()
+            out[0][:, :, 5] = 0
+            out= (torch.cat([out[0], (circumference == min_circumference).unsqueeze(-1), (circumference == max_circumference).unsqueeze(-1)], dim=-1),)
+        else:
+            smallest_score = out[0][:, :, 5:6]
+            largest_score = out[0][:, :, 6:7]
+            smallest_flag = smallest_score > largest_score
+            largest_flag = largest_score >= smallest_score
+            
+            smallest_candidate = candidate & smallest_flag.squeeze(-1)
+            largest_candidate = candidate & largest_flag.squeeze(-1)
+            min_circumference = torch.where(smallest_candidate, circumference, 1000).min(axis=1).values
+            max_circumference = torch.where(largest_candidate, circumference, 0).max(axis=1).values
+            flag = (circumference == min_circumference) | (circumference == max_circumference)
+            out[0][:,  :, 4] = out[0][:,  :, 4] * flag.float()
+
+    
         return out
     
     def fuse(self):
@@ -206,6 +235,185 @@ class IDetect(nn.Module):
         box @= convert_matrix                          
         return (box, score)
 
+class CNNBlocks(nn.Module):
+    def __init__(self, in_dim, out_dim, is_downsample=False) -> None:
+        super().__init__()
+        if is_downsample:
+            stride = 2
+        else:
+            stride = 1
+            
+            
+        self.conv1 = nn.Conv2d(in_dim, out_dim, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(out_dim)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv2d(out_dim, out_dim, kernel_size=3, stride=stride, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_dim)
+        
+        if is_downsample:
+            self.downsample = nn.Sequential(
+                            nn.Conv2d(in_dim, out_dim, kernel_size=1, stride=stride),
+                            nn.BatchNorm2d(out_dim)
+                        )
+        else:
+            self.downsample = nn.Sequential(
+                            nn.Conv2d(in_dim, out_dim, kernel_size=1, stride=stride),
+                            nn.BatchNorm2d(out_dim)
+                        )
+            
+    def forward(self, x):
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out = self.relu(out + self.downsample(x))
+        return out        
+
+class CNNOut(nn.Module):
+    def __init__(self, n_layer):
+        super().__init__()
+        self.layers = nn.ModuleList([CNNBlocks(16, 16), CNNBlocks(16, 32, is_downsample=True)]) 
+        self.emb1 = nn.Sequential(
+                            nn.Conv2d(21, 16, kernel_size=1, stride=1),
+                        )
+        self.emb2 = nn.Sequential(
+                            nn.Conv2d(32, 21, kernel_size=1, stride=1),
+                        )
+        
+    def forward(self, x):
+        x = self.emb1(x)
+
+
+        for layer in self.layers:
+            x = layer(x)
+
+        x = self.emb2(x)
+        return x
+
+class ResidualAttention(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.attn1 = nn.MultiheadAttention(dim, 1)
+        self.norm1 = nn.LayerNorm(dim)
+        self.ffn1 = nn.Linear(dim, dim)
+        self.relu = nn.ReLU()
+        self.norm2 = nn.Linear(dim, dim)
+        self.ffn1 = nn.Linear(dim, 2*dim)
+        self.ffn2 = nn.Linear(2*dim, dim)
+        self.dropout = nn.Dropout(0.1)
+        
+    def _sa_block(self, q, k, v):
+        print(k.shape, q.shape)
+        q = self.dropout(self.attn1(q, k, v)[0])
+        return q
+
+    def _ff_block(self, x):
+        return self.ffn2(self.dropout(self.relu(self.ffn1(x))))
+
+    def forward(self, q, k, v):        
+        q = self.norm1(self._sa_block(q, k, v))
+        q = self.norm2(q + self._ff_block(q))
+
+        return q
+
+class AttentionOut(nn.Module):
+    def __init__(self, new_dim):
+        super().__init__()
+        self.new_dim = new_dim
+        self.queries = nn.Parameter(torch.randn(1, int(new_dim**2), 32))
+        self.attn1 = ResidualAttention(32)
+        self.attn2 = ResidualAttention(32)
+        self.emb1 = nn.Sequential(
+                            nn.Conv2d(21, 32, kernel_size=1, stride=1),
+                        )
+        self.emb2 = nn.Sequential(
+                            nn.Conv2d(32, 21, kernel_size=1, stride=1),
+                        )
+
+    def forward(self, x):
+        x = self.emb1(x)
+        x = x.permute(0, 2, 3, 1).view(x.shape[0], -1, x.shape[1])
+        queries = self.queries.repeat(len(x), 1, 1)
+        
+        queries = self.attn1(queries, x, x)
+        queries = self.attn2(queries, queries, queries)
+        
+        queries = queries.view(x.shape[0], self.new_dim, self.new_dim, -1).permute(0, 3, 1, 2)
+        return self.emb2(queries)
+            
+
+class IDetect_CNN(IDetect):
+    def __init__(self, nc=80, anchors=(), ch=()):
+        super().__init__(nc, anchors, ch)
+        
+        self.cnns = nn.ModuleList([CNNOut(i+1) for i in range(len(ch)-1, -1, -1)])
+                
+        
+    def forward(self, x):
+        # x = x.copy()  # for profiling
+        z = []  # inference output
+        self.training |= self.export
+        for i in range(self.nl):
+            x[i] = self.m[i](self.ia[i](x[i]))  # conv
+            x[i] = self.im[i](x[i])
+            bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
+
+            x[i] = self.cnns[i](x[i])
+
+            ny = ny//2
+            nx = nx//2
+            x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
+            # x[i] = self.emb2(self.attn(self.emb1(tmp)))
+
+            if not self.training:  # inference
+                if self.grid[i].shape[2:4] != x[i].shape[2:4]:
+                    self.grid[i] = self._make_grid(nx, ny).to(x[i].device)
+
+                y = x[i].sigmoid()
+                y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid[i]) * self.stride[i]  # xy
+                y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
+                z.append(y.view(bs, -1, self.no))
+
+        return x if self.training else (torch.cat(z, 1), x)
+
+class IDetect_Attn(IDetect):
+    def __init__(self, nc=80, anchors=(), ch=()):
+        super().__init__(nc, anchors, ch)
+        new_dim = 16
+        attns = []
+        self.new_dims = []
+        for _ in range(len(ch)):
+            attns.append(AttentionOut(new_dim))
+            self.new_dims.append((new_dim, new_dim))
+            
+            new_dim = new_dim // 2
+        
+        
+        self.attns = nn.ModuleList(*[attns])
+
+    def forward(self, x):
+        # x = x.copy()  # for profiling
+        z = []  # inference output
+        self.training |= self.export
+        for i in range(self.nl):
+            x[i] = self.m[i](self.ia[i](x[i]))  # conv
+            x[i] = self.im[i](x[i])
+            bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
+
+            x[i] = self.attns[i](x[i])
+
+            ny, nx = self.new_dims[i]
+            x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
+            # x[i] = self.emb2(self.attn(self.emb1(tmp)))
+
+            if not self.training:  # inference
+                if self.grid[i].shape[2:4] != x[i].shape[2:4]:
+                    self.grid[i] = self._make_grid(nx, ny).to(x[i].device)
+
+                y = x[i].sigmoid()
+                y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid[i]) * self.stride[i]  # xy
+                y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
+                z.append(y.view(bs, -1, self.no))
+
+        return x if self.training else (torch.cat(z, 1), x)
 
 class IKeypoint(nn.Module):
     stride = None  # strides computed during build
@@ -505,6 +713,8 @@ class IBin(nn.Module):
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
 
+
+
 class Model(nn.Module):
     def __init__(self, cfg='yolor-csp-c.yaml', ch=3, nc=None, anchors=None):  # model, input channels, number of classes
         super(Model, self).__init__()
@@ -525,6 +735,8 @@ class Model(nn.Module):
         if anchors:
             logger.info(f'Overriding model.yaml anchors with anchors={anchors}')
             self.yaml['anchors'] = round(anchors)  # override yaml value
+            
+        print(self.yaml, ch)
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
@@ -787,7 +999,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             c2 = ch[f[0]]
         elif m is Foldcut:
             c2 = ch[f] // 2
-        elif m in [Detect, IDetect, IAuxDetect, IBin, IKeypoint]:
+        elif m in [Detect, IDetect, IDetect_CNN, IDetect_Attn, IAuxDetect, IBin, IKeypoint]:
             args.append([ch[x] for x in f])
             if isinstance(args[1], int):  # number of anchors
                 args[1] = [list(range(args[1] * 2))] * len(f)
