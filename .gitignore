@@ -260,4 +260,5 @@ crashlytics.properties
 crashlytics-build.properties
 fabric.properties
 
-dataset/
+dataset*/
+downloaded_files/

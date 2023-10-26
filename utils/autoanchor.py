@@ -104,7 +104,8 @@ def kmean_anchors(path='./data/coco.yaml', n=9, img_size=640, thr=4.0, gen=1000,
         with open(path) as f:
             data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
         from utils.datasets import LoadImagesAndLabels
-        dataset = LoadImagesAndLabels(data_dict['train'], augment=True, rect=True)
+        dataset = LoadImagesAndLabels(data_dict['train'], augment=True, rect=True,
+                                      data_name=data_dict["data_name"])
     else:
         dataset = path  # dataset
 

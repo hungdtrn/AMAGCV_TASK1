@@ -3,10 +3,10 @@ import shutil
 import json
 import random
 import argparse
-from collections import defaultdict
 import numpy as np
 import cv2
-
+import subprocess
+from preprocess_utils import preprocess_boxes
 
 def coco_to_yolo(x1, y1, w, h, image_w, image_h):
     return [((2*x1 + w)/(2*image_w)) , ((2*y1 + h)/(2*image_h)), w/image_w, h/image_h]
@@ -57,40 +57,31 @@ def save(data_idx, boxPerImage, name, image_dir, data_dir, label_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image_dir", type=str, default="dataset/processed/images")
+    parser.add_argument("--image_dir", type=str, default="dataset/raw/images")
     parser.add_argument("--raw_data_dir", type=str, default="dataset/raw")
     parser.add_argument("--output_dir")
-
+    parser.add_argument("--min_smallest", type=float)
+    parser.add_argument("--max_smallest", type=float)
+    parser.add_argument("--min_largest", type=float)
+    parser.add_argument("--max_largest", type=float)
+    
     args = parser.parse_args()
+    
     
     os.makedirs(os.path.join(args.output_dir, "labels/train"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "labels/val"), exist_ok=True)
-
+    
     annotation_dir_path = os.path.join(args.raw_data_dir, "annotations")
     with open(os.path.join(annotation_dir_path, "instances_val2017.json"), "r") as f:
         annotations = json.load(f)
                 
+    boxPerImage = preprocess_boxes(annotations,
+                                   min_smallest=args.min_smallest,
+                                   max_smallest=args.max_smallest,
+                                   min_largest=args.min_largest,
+                                   max_largest=args.max_largest)
     
-    print(annotations["annotations"][0].keys())
-    # exit()
-    # Select the biggest and the smallest bounding boxes
-    boxPerImage = defaultdict(list)
-
-    for annotation in annotations["annotations"]:
-        boxPerImage[annotation["image_id"]].append(annotation)
-    
-    print(len(boxPerImage))
-    
-    tmp = {}
-    for k in boxPerImage:
-        boxes = select_two_objects(boxPerImage[k])
-        if boxes is not None:
-            tmp[k] = boxes
-            
-    
-    boxPerImage = tmp
-    print(len(boxPerImage))    
-    
+    # Train test split    
     all_videos = list(boxPerImage.keys())
     np.random.shuffle(all_videos)
     n_val = int(0.1 * len(all_videos))

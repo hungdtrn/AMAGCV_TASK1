@@ -63,7 +63,7 @@ def exif_size(img):
 
 
 def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=False, cache=False, pad=0.0, rect=False,
-                      rank=-1, world_size=1, workers=8, image_weights=False, quad=False, prefix=''):
+                      rank=-1, world_size=1, workers=8, image_weights=False, quad=False, prefix='', data_name=""):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache
     with torch_distributed_zero_first(rank):
         dataset = LoadImagesAndLabels(path, imgsz, batch_size,
@@ -75,7 +75,8 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
                                       stride=int(stride),
                                       pad=pad,
                                       image_weights=image_weights,
-                                      prefix=prefix)
+                                      prefix=prefix,
+                                      data_name=data_name)
 
     batch_size = min(batch_size, len(dataset))
     nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, workers])  # number of workers
@@ -344,15 +345,15 @@ class LoadStreams:  # multiple IP or RTSP cameras
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
 
 
-def img2label_paths(img_paths):
+def img2label_paths(img_paths, data_name):
     # Define label paths as a function of image paths
-    sa, sb = os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep  # /images/, /labels/ substrings
+    sa, sb = os.sep + "raw" + os.sep + 'images' + os.sep, os.sep + "processed" + os.sep + data_name + os.sep + 'labels' + os.sep  # /raw/images/, /{data_name}/labels/ substrings
     return ['txt'.join(x.replace(sa, sb, 1).rsplit(x.split('.')[-1], 1)) for x in img_paths]
 
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
     def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
-                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix=''):
+                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix='', data_name=""):
         self.img_size = img_size
         self.augment = augment
         self.hyp = hyp
@@ -361,9 +362,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
-        self.path = path        
+        self.path = path      
+        self.data_name = data_name  
         #self.albumentations = Albumentations() if augment else None
-        print(path)
+
         try:
             f = []  # image files
             for p in path if isinstance(path, list) else [path]:
@@ -386,7 +388,9 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             raise Exception(f'{prefix}Error loading data from {path}: {e}\nSee {help_url}')
 
         # Check cache
-        self.label_files = img2label_paths(self.img_files)  # labels
+        self.label_files = img2label_paths(self.img_files,
+                                           self.data_name)  # labels
+
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')  # cached labels
         print(cache_path.is_file(), self.label_files[0])        
         if cache_path.is_file():
@@ -410,7 +414,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.labels = list(labels)
         self.shapes = np.array(shapes, dtype=np.float64)
         self.img_files = list(cache.keys())  # update
-        self.label_files = img2label_paths(cache.keys())  # update
+        self.label_files = img2label_paths(cache.keys(),
+                                           self.data_name)  # update
         if single_cls:
             for x in self.labels:
                 x[:, 0] = 0
@@ -1256,7 +1261,7 @@ def flatten_recursive(path='../coco'):
         shutil.copyfile(file, new_path / Path(file).name)
 
 
-def extract_boxes(path='../coco/'):  # from utils.datasets import *; extract_boxes('../coco128')
+def extract_boxes(path='../coco/', data_name=""):  # from utils.datasets import *; extract_boxes('../coco128')
     # Convert detection dataset into classification dataset, with one directory per class
 
     path = Path(path)  # images dir
@@ -1270,7 +1275,8 @@ def extract_boxes(path='../coco/'):  # from utils.datasets import *; extract_box
             h, w = im.shape[:2]
 
             # labels
-            lb_file = Path(img2label_paths([str(im_file)])[0])
+            lb_file = Path(img2label_paths([str(im_file)],
+                                           data_name)[0])
             if Path(lb_file).exists():
                 with open(lb_file, 'r') as f:
                     lb = np.array([x.split() for x in f.read().strip().splitlines()], dtype=np.float32)  # labels
@@ -1291,7 +1297,7 @@ def extract_boxes(path='../coco/'):  # from utils.datasets import *; extract_box
                     assert cv2.imwrite(str(f), im[b[1]:b[3], b[0]:b[2]]), f'box failure in {f}'
 
 
-def autosplit(path='../coco', weights=(0.9, 0.1, 0.0), annotated_only=False):
+def autosplit(path='../coco', weights=(0.9, 0.1, 0.0), annotated_only=False, data_name=""):
     """ Autosplit a dataset into train/val/test splits and save path/autosplit_*.txt files
     Usage: from utils.datasets import *; autosplit('../coco')
     Arguments
@@ -1309,7 +1315,8 @@ def autosplit(path='../coco', weights=(0.9, 0.1, 0.0), annotated_only=False):
 
     print(f'Autosplitting images from {path}' + ', using *.txt labeled images only' * annotated_only)
     for i, img in tqdm(zip(indices, files), total=n):
-        if not annotated_only or Path(img2label_paths([str(img)])[0]).exists():  # check label
+        if not annotated_only or Path(img2label_paths([str(img)],
+                                                      data_name)[0]).exists():  # check label
             with open(path / txt[i], 'a') as f:
                 f.write(str(img) + '\n')  # add image to txt file
     
