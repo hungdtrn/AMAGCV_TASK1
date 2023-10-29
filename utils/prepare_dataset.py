@@ -67,11 +67,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     
-    twoBox_twoClass_dir = os.path.join(args.output_dir, "2box2class")
-    twoBox_oneClass_dir = os.path.join(args.output_dir, "2box1class")
-    
-    all_box_dir = os.path.join(args.output_dir, "allboxallclass")
-    all_box_oneClass_dir = os.path.join(args.output_dir, "allbox1class")
+    twoClass_dir = os.path.join(args.output_dir, "twoClass")
+    singleClass_dir = os.path.join(args.output_dir, "singleClass")
     
     
     annotation_dir_path = os.path.join(args.raw_data_dir, "annotations")
@@ -134,7 +131,6 @@ if __name__ == "__main__":
     for k in groups:
         videos_per_group = [i[0] for i in groups[k]]
         group_ratio = [ratio[all_videos.index(i)] for i in videos_per_group]
-        print(f"Group {k}: {len(videos_per_group)}, min: {min(group_ratio)}, max: {max(group_ratio)}, mean: {np.mean(group_ratio)}, std: {np.std(group_ratio)}")
         np.random.shuffle(videos_per_group)
         n_val = int(0.1 * len(videos_per_group))
         val.extend(videos_per_group[:n_val])
@@ -147,9 +143,9 @@ if __name__ == "__main__":
     
     # Save to files
     print("------ Saving to files ----------")
-    out_dir_list = [twoBox_twoClass_dir, twoBox_oneClass_dir, all_box_dir, all_box_oneClass_dir]
-    data_list = [minMaxPerImage, minMaxPerImage, allPerImage, allPerImage]
-    single_class_list = [False, True, False, True]
+    out_dir_list = [twoClass_dir, singleClass_dir]
+    data_list = [minMaxPerImage, allPerImage]
+    single_class_list = [False, True]
     
     for out_dir, data, single_flag in zip(out_dir_list, data_list, single_class_list):
         os.makedirs(os.path.join(out_dir, "labels"), exist_ok=True)
