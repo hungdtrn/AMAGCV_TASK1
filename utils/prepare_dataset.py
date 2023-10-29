@@ -6,6 +6,7 @@ import argparse
 from collections import defaultdict
 import numpy as np
 import cv2
+import pandas as pd
 import pickle
 from preprocess_utils import preprocess_boxes
 
@@ -38,6 +39,18 @@ def save(data_idx, boxPerImage, name, image_info, image_dir, data_dir, label_dir
             
     with open(os.path.join(data_dir, f"{name}.txt"), "w") as f:
         f.write("\n".join(fnames))
+
+def divide_into_bins(keys, data, n_bins):
+    labels = pd.qcut(data, n_bins)
+    out = defaultdict(list)
+    for i in range(len(labels)):
+        out[labels[i]].append((keys[i], data[i]))
+        
+    return out
+
+def computeArea(box):
+    return box[-1] * box[-2]
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -112,13 +125,24 @@ if __name__ == "__main__":
     # Train test split    
     print('------ Train/validation split ----------')
     all_videos = list(minMaxPerImage.keys())
-    np.random.shuffle(all_videos)
-    n_val = int(0.1 * len(all_videos))
-    val = all_videos[:n_val]
-    train = all_videos[n_val:]
+    
+    all_smallest_boxes = np.array([computeArea(k[0]["bbox"]) for k in minMaxPerImage.values()])
+    all_largest_boxes = np.array([computeArea(k[1]["bbox"]) for k in minMaxPerImage.values()])
+    ratio = all_smallest_boxes / all_largest_boxes
+    groups = divide_into_bins(all_videos, ratio, 20)
+    val = []
+    for k in groups:
+        videos_per_group = [i[0] for i in groups[k]]
+        group_ratio = [ratio[all_videos.index(i)] for i in videos_per_group]
+        print(f"Group {k}: {len(videos_per_group)}, min: {min(group_ratio)}, max: {max(group_ratio)}, mean: {np.mean(group_ratio)}, std: {np.std(group_ratio)}")
+        np.random.shuffle(videos_per_group)
+        n_val = int(0.1 * len(videos_per_group))
+        val.extend(videos_per_group[:n_val])
+    
+    all_videos, val = set(all_videos), set(val)
+    train = all_videos.difference(val)
     
     print(f"Total: {len(all_videos)}, train: {len(train)}, val: {len(val)}")
-
 
     
     # Save to files
