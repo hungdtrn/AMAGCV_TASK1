@@ -3,20 +3,16 @@ This report outlines my approaches to data preparation and fine-tuning the YOLO-
 
 ## 1. Summary
 ### 1.1. About the data
-- There is no clear distinction between smallest and largest bounding boxes. Sizes alone cannot determine this distiction; comparison between boxes in the same image is necessary
-- Some objects are exceptionally small (as small as 2 pixels), making accurate labeling difficult, and these tiny boxes are predominantly noise in the data. Around 98% of the data has the smallest bounding box larger than 17 square pixels, indicating a need for a lower limit on the smallest bounding box area. This could aid learning and visualization.
-- Instances where there is only one groundtruth object in the data have been treated as noise and removed from the dataset.
+• There is no clear distinction between smallest and largest bounding boxes. Sizes alone cannot determine this distinction.
+• Some objects are exceptionally small (as small as 0.8 pixels), making accurate labeling difficult. They were removed from the data. 
 ### 1.2. About the models
-- No Finetuning, Post-processing Only: YOLO-v7 output bounding boxes were post-processed without finetuning. This method was slow and inefficient because it yields an excessive number of unnecessary bounding boxes. Consequently, NMS is applied to a larger set of box candidates than needed.
-- Fine-tuning YOLO-V7 for single-class object detection using annotations for the largest and smallest objects, followed by post-processing to isolate and identify only the largest and smallest objects in the image. The fine-tuned model generates a smaller set of bounding boxes candidates,leading to quicker NMS. Two variants of this approach are considered: (1) Fine-tuning the entire model and (2) fine-tuning only the detection head. Option (2) is more cost-effective and accurate.
-- Given that the task now solely involves detecting the largest and smallest bounding boxes in an image, these boxes can be selected from the bounding box candidates before applying NMS. This reduces the time spent on NMS but comes at the cost of reduced accuracy since the largest boxes may not necessarily be the ones with the most significant overlap with the object.
-
+• Fine-tuning, then post-processing: Two variants of this approach are considered: (1) Fine-tuning to detect largest and smallest boxes direct from the image (2) Fine-tuning to detect the object in general, then post-process to find the largest and smallest objects.
+• Regardless of the model, an additional post-processing step is necessary for ensuring the model only output a largest and a smallest object in the image. 
 ## 2. Preprequisite Installation
 Install the environment
 ```
-conda create -n amagcv python=3.9
-conda activate amagcv
-pip install -r requirements.txt
+conda env create -f environment.yml
+conda activate amagcvTask1
 ```
 Install and setup wandb as instructed [here](https://docs.wandb.ai/quickstart)
 
@@ -24,33 +20,46 @@ Download the dataset and model and unzip to the desired folder
 ```
 bash download.sh 
 ```
-## 3. Project structures
-Most of this projects were copied from the original git repo of YOLO-v7. For details of the structure of the project, please visit the original repo.
-Here are the added folders/files:
-- `download.sh`: The bash file used to download the required dataset and model
-- `tools/data_analysis.ipynb`: Notebook for analyze the size of the bounding boxes 
-- `utils/prepare_data.py`: The python file used to prepare the dataset that contains two labeled bounding boxes: largest and smalelst
-- `utils/prepare_data_single_class.py`: The python file used to prepare the dataset that contains a single label showing whether the box is object or not (single-class)
-- `data/custom_coco.yaml`: The config for loading the two-label dataset
-- `data/custom_coco.yaml`: The config for loading the single-label dataset
-- `train.py`: Modified for training
-- `test.py`: Modified for post-processing the output of NMS and pre-processing the input of NMS for detecting the smallest and largest objects.
-- `detect.py`: Modified for post-processing the output of NMS and pre-processing the input of NMS for detecting the smallest and largest objects.
+## 3. Models
+### Model list and pretrained weights
+
+Model | Precision | Recall | mAP@50 | Link
+--- | --- | --- | --- | ---
+Two-class, 3 anchors | 0.500 | 0.460 | 0.360 | [Link](https://drive.google.com/file/d/1H0wpSU3D8OTylmewas5tS9ysxVD9X5C7/view?usp=drive_link)
+Two-class, 5 anchors | 0.546 | 0.483 | 0.3910 | [Link](https://drive.google.com/file/d/1ATLpKHtDHkf3Tr693UfTNrL7Of_oNRyQ/view?usp=drive_link)
+Single-class, 3 anchors | 0.612 | 0.474 | 0.435 | [Link](https://drive.google.com/file/d/1cDrzFMmPECClK9h9KC8zYLlfATJbq_fL/view?usp=drive_link)
+Single-class, 5 anchors | 0.665 | 0.486 | 0.457 | [Link](https://drive.google.com/file/d/1aGPCqJ6ipOXa6RDXfrD-JMugpI1V38hb/view?usp=drive_link)
+
+Two-class: Fine-tune the model to identify the largest and smallest object boxes within the image, then select the boxes that have the smallest and largest size.
+Single-class: Fine-tune the model to detect all objects in the image, then select two boxes that have smallest and largest size.
 ## 4. Using the code
-For pre-process the raw data, run the following code
+### Pre-processing the raw  data
 ```
-# Create the dataset for singe-object-detection training
-python utils/preprocess_single_class.py --output_dir dataset/processed/single_class
-
-# Create the dataset for multiple-object-detection training
-python utils/preprocess_two_classes.py --output_dir dataset/processed/two_class/
-
-# Train for detecting single class
-python train.py --workers 8 --batch-size 32 --data data/coco.yaml --img 640 640 --cfg cfg/training/yolov7.yaml --weights pretrained/yolov7.pt --name tmp --hyp data/hyp.scratch.p5.yaml --single-cls
-
-# Train for detecting multiple classes
-python train.py --workers 8 --batch-size 32 --data data/custom_coco_two.yaml --img 640 640 --cfg cfg/training/yolov7.yaml --weights pretrained/yolov7.pt --name tmp --hyp data/hyp.scratch.p5.yaml
-
-# Run test.py to compute the test statistics on the validation set
-python test.py --weights runs/train/singleclass_yolo_freeze5/weights/best.pt --data data/custom_coco.yaml
+python utils/prepare_dataset.py --output_dir dataset/processed/ --min_size 8
 ```
+
+The data used to trained and evaluated the models were uploaded [here](https://drive.google.com/file/d/1f-yonKKwXrHFc5elUprzIwR6TDh5En2m/view?usp=drive_link). Please download it and unzip to the `dataset` folder.
+
+### Training models
+Two-class model
+```
+python train.py --workers 8 --batch-size 32 --data data/two_class_coco.yaml --img 640 640 --cfg cfg/training/yolov7_5anchors.yaml --weights downloaded_files/yolov7.pt  --name twoClass5anchor --hyp data/hyp.scratch.p5.yaml --device 0
+```
+
+Single-class model
+```
+python train.py --workers 8 --batch-size 32 --data data/single_class_coco.yaml --img 640 640 --cfg cfg/training/yolov7_5anchors.yaml --weights downloaded_files/yolov7.pt  --name singleClass5anchor  --hyp data/hyp.scratch.p5.yaml --device 0
+```
+### Evaluating the model
+```
+python test.py --batch-size 32 --data data/single_class_coco.yaml  --weights model.pt --device 0
+```
+Where `model.pt` is the path to your model
+### Apply on some other images
+```
+python detect.py --weight model.pt  --device 0 --img-size 640 --source inference/images/
+```
+## Reports
+- My PDF report is uploaded [Here](https://drive.google.com/file/d/1oup1Vg27Hom9GQ_5CPw2LniBchlQpieq/view?usp=sharing)
+- My WanDB report is exportd [here](https://wandb.ai/hungdtrn/YOLOR/reports/Comparison-between-Two-class-and-Single-class-detection--Vmlldzo1ODEyNzQ2?accessToken=vzbhyk9ail6fngjq59yv74jq4hfov6a8o0gbo6s0c2t1gsvknrtx305701t0qnca)
+
