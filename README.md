@@ -6,7 +6,7 @@ This report outlines my approaches to data preparation and fine-tuning the YOLO-
 • There is no clear distinction between smallest and largest bounding boxes. Sizes alone cannot determine this distinction.
 • Some objects are exceptionally small (as small as 0.8 pixels), making accurate labeling difficult. They were removed from the data. 
 ### 1.2. About the models
-• Fine-tuning, then post-processing: Two variants of this approach are considered: (1) Fine-tuning to detect largest and smallest boxes direct from the image (2) Fine-tuning to detect the object in general, then post-process to find the largest and smallest objects.
+• Fine-tuning, then post-processing: Two variants of this approach are considered: (1) Fine-tuning to detect largest and smallest boxes direct from the image (2) Fine-tune the model to detect objects in the image without distinguishing between specific objects, and subsequently select two boxes representing the smallest and largest sizes.
 • Regardless of the model, an additional post-processing step is necessary for ensuring the model only output a largest and a smallest object in the image. 
 ## 2. Preprequisite Installation
 Install the environment
@@ -43,7 +43,7 @@ The data used to trained and evaluated the models were uploaded [here](https://d
 ### Training models
 Two-class model
 ```
-python train.py --workers 8 --batch-size 32 --data data/two_class_coco.yaml --img 640 640 --cfg cfg/training/yolov7_5anchors.yaml --weights downloaded_files/yolov7.pt  --name twoClass5anchor --hyp data/hyp.scratch.p5.yaml --device 0
+python train.py --workers 8 --batch-size 32 --data data/single_class_coco.yaml --img 640 640 --cfg cfg/training/yolov7_5anchors.yaml --weights downloaded_files/yolov7.pt  --name singleClass5anchor  --hyp data/hyp.scratch.p5.yaml --device 0
 ```
 
 Single-class model
@@ -59,7 +59,11 @@ Where `model.pt` is the path to your model
 ```
 python detect.py --weight model.pt  --device 0 --img-size 640 --source inference/images/
 ```
-## Reports
-- My PDF report is uploaded [Here](https://drive.google.com/file/d/1oup1Vg27Hom9GQ_5CPw2LniBchlQpieq/view?usp=sharing)
-- My WanDB report is exportd [here](https://wandb.ai/hungdtrn/YOLOR/reports/Comparison-between-Two-class-and-Single-class-detection--Vmlldzo1ODEyNzQ2?accessToken=vzbhyk9ail6fngjq59yv74jq4hfov6a8o0gbo6s0c2t1gsvknrtx305701t0qnca)
+### Some Demo
+![One-class, 5 anchors](/public/singleclass.jpg)
+![Two-class, 5 anchors](/public/twoclass.jpg)
+
+## Report
+My report is uploaded [Here](https://drive.google.com/file/d/1oup1Vg27Hom9GQ_5CPw2LniBchlQpieq/view?usp=sharing)
+
 
