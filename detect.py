@@ -13,9 +13,10 @@ from utils.general import check_img_size, check_requirements, check_imshow, non_
     scale_coords, xyxy2xywh, strip_optimizer, set_logging, increment_path
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
+from utils.box_utils import postprocess_boxes
 
 
-def detect(save_img=False):
+def detect(process_type, save_img=False):
     source, weights, view_img, save_txt, imgsz, trace = opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, not opt.no_trace
     save_img = not opt.nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
@@ -62,7 +63,8 @@ def detect(save_img=False):
         names = ["objects", "smallest", "largest"]
     # names = ["objects", "small", "large"]
     # print(names, hasattr(model, 'module'), model.names)
-    colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
+    # colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
+    colors = [[255, 0, 0], [0, 0, 255]]
 
     # Run inference
     if device.type != 'cpu':
@@ -94,6 +96,9 @@ def detect(save_img=False):
 
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
+        if process_type == "post":
+            pred = postprocess_boxes(pred)
+
         t3 = time_synchronized()
 
         # Apply Classifier
@@ -187,6 +192,8 @@ if __name__ == '__main__':
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
+    parser.add_argument('--process_type', default="post", help='assume maximum recall as 1.0 in AP calculation')
+
     opt = parser.parse_args()
     print(opt)
     #check_requirements(exclude=('pycocotools', 'thop'))
@@ -194,7 +201,7 @@ if __name__ == '__main__':
     with torch.no_grad():
         if opt.update:  # update all models (to fix SourceChangeWarning)
             for opt.weights in ['yolov7.pt']:
-                detect()
+                detect(opt.process_type)
                 strip_optimizer(opt.weights)
         else:
-            detect()
+            detect(opt.process_type)

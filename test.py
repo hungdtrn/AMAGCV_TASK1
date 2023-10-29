@@ -22,7 +22,7 @@ def test(data,
          weights=None,
          batch_size=32,
          imgsz=640,
-         conf_thres=0.001,
+         conf_thres=0.1,
          iou_thres=0.6,  # for NMS
          save_json=False,
          single_cls=False,
@@ -41,7 +41,8 @@ def test(data,
          trace=False,
          is_coco=False,
          v5_metric=False,
-         process_type="post"):
+         process_type="post",
+         min_area_bound=None):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -63,6 +64,7 @@ def test(data,
         if trace:
             model = TracedModel(model, device, imgsz)
 
+    verbose = True
     # Half
     half = device.type != 'cpu' and half_precision  # half precision only supported on CUDA
     if half:
@@ -75,12 +77,29 @@ def test(data,
         with open(data) as f:
             data = yaml.load(f, Loader=yaml.SafeLoader)
     check_dataset(data)  # check
+    
+    # Overring this to force the models to only predict the smallest and largest boxes
+    
+    names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
     # nc = 1 if single_cls else int(data['nc'])  # number of classes
-    nc = 2
+    # if nc == 80 or nc == 1:
+    
+    if not single_cls:
+        nc = 2
+        names = {0: "smallest", 1: "largest"}
+    else:
+        nc = 1
+        names = {0: "object"}
+
+    
+    # Turn of the post-processing for validating the single-cls model
+    if single_cls:
+        process_type = ""
+    
 
     iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
     niou = iouv.numel()
-
+    
     # Logging
     log_imgs = 0
     if wandb_logger and wandb_logger.wandb:
@@ -90,17 +109,15 @@ def test(data,
         if device.type != 'cpu':
             model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
         task = opt.task if opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
+        
         dataloader = create_dataloader(data[task], imgsz, batch_size, gs, opt, pad=0.5, rect=True,
-                                       prefix=colorstr(f'{task}: '),
-                                       data_name=data["data_name"])[0]
+                                       prefix=colorstr(f'{task}: '))[0]
 
     if v5_metric:
         print("Testing with YOLOv5 AP metric...")
     
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
-    # names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
-    names = {0: "smallest", 1: "largest"}
     
     coco91class = coco80_to_coco91_class()
     s = ('%20s' + '%12s' * 6) % ('Class', 'Images', 'Labels', 'P', 'R', 'mAP@.5', 'mAP@.5:.95')
@@ -120,9 +137,8 @@ def test(data,
             out, train_out = model(img, augment=augment)  # inference and training outputs
             t0 += time_synchronized() - t
 
-            if process_type == "pre":
-                print("Preprocessing the candidate")
-                out = preprocess_boxes(out, conf_thres)
+            # if process_type == "pre":
+            #     out = preprocess_boxes(out, conf_thres, min_area_bound=min_area_bound)
 
             # Compute loss
             if compute_loss:
@@ -137,11 +153,11 @@ def test(data,
             out = non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb, multi_label=True)
             
             if process_type == "post":
-                out = postprocess_boxes(out)
+                out = postprocess_boxes(out, min_area_bound=min_area_bound)
                 
-            w, h = out[0][:, 2] - out[0][:, 0], out[0][:, 3] - out[0][:, 1]
-            area = w * h
-            print(out[0].shape, area, out[0][:, -1])
+            # w, h = out[0][:, 2] - out[0][:, 0], out[0][:, 3] - out[0][:, 1]
+            # area = w * h
+            # print(out[0].shape, area, out[0][:, -1], len(out))
 
             
             t1 += time_synchronized() - t
@@ -314,7 +330,7 @@ if __name__ == '__main__':
     parser.add_argument('--data', type=str, default='data/coco.yaml', help='*.data path')
     parser.add_argument('--batch-size', type=int, default=32, help='size of each image batch')
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.001, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.1, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.65, help='IOU threshold for NMS')
     parser.add_argument('--task', default='val', help='train, val, test, speed or study')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
@@ -330,7 +346,8 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
-    parser.add_argument('--process_type', default="pre", help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--process_type', default="post", help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--min_area_bound', type=float, help='assume maximum recall as 1.0 in AP calculation')
 
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('coco.yaml')
@@ -355,6 +372,7 @@ if __name__ == '__main__':
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric,
              process_type=opt.process_type,
+             min_area_bound=opt.min_area_bound,
              )
 
     elif opt.task == 'speed':  # speed benchmarks

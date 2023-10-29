@@ -1,0 +1,14 @@
+# Custom dataset
+
+# train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
+train: ./dataset/processed/allbox1class/train.txt  
+val: ./dataset/processed/2box2class/val.txt  
+test: ./dataset/processed/2box2class/val.txt 
+# number of classes
+nc: 1
+
+# dataset name (name of the folder in the processed folder)
+data_name: "allbox1class"
+
+# class names
+names: [ 'objects' ]

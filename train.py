@@ -94,8 +94,10 @@ def train(hyp, opt, device, tb_writer=None):
         logger.info(f"model: {model}")
         if opt.freeze_backbone:
             for name, param in model.named_parameters():
-                if not name.startswith('model.105'):
+                layer_id = int(name.split(".")[1])
+                if layer_id <= 50:
                     param.requires_grad = False
+
                     
         
         logger.info("Number of training parameters: {}".format(sum([np.prod(p.shape) for p in model.parameters() if p.requires_grad])))
@@ -254,8 +256,7 @@ def train(hyp, opt, device, tb_writer=None):
     dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, opt,
                                             hyp=hyp, augment=True, cache=opt.cache_images, rect=opt.rect, rank=rank,
                                             world_size=opt.world_size, workers=opt.workers,
-                                            image_weights=opt.image_weights, quad=opt.quad, prefix=colorstr('train: '),
-                                            data_name=data_dict["data_name"],)
+                                            image_weights=opt.image_weights, quad=opt.quad, prefix=colorstr('train: '),)
     mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
     nb = len(dataloader)  # number of batches
     assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
@@ -265,8 +266,7 @@ def train(hyp, opt, device, tb_writer=None):
         testloader = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, opt,  # testloader
                                        hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True, rank=-1,
                                        world_size=opt.world_size, workers=opt.workers,
-                                       pad=0.5, prefix=colorstr('val: '),
-                                       data_name=data_dict["data_name"])[0]
+                                       pad=0.5, prefix=colorstr('val: '),)[0]
 
         if not opt.resume:
             labels = np.concatenate(dataset.labels, 0)
@@ -507,7 +507,7 @@ def train(hyp, opt, device, tb_writer=None):
                 results, _, _ = test.test(opt.data,
                                           batch_size=batch_size * 2,
                                           imgsz=imgsz_test,
-                                          conf_thres=0.001,
+                                          conf_thres=0.1,
                                           iou_thres=0.7,
                                           model=attempt_load(m, device).half(),
                                           single_cls=opt.single_cls,
@@ -516,7 +516,9 @@ def train(hyp, opt, device, tb_writer=None):
                                           save_json=True,
                                           plots=False,
                                           is_coco=is_coco,
-                                          v5_metric=opt.v5_metric)
+                                          v5_metric=opt.v5_metric,
+                                          process_type=opt.process_type)
+
 
         # Strip optimizers
         final = best if best.exists() else last  # final model
@@ -551,7 +553,6 @@ if __name__ == '__main__':
     parser.add_argument('--notest', action='store_true', help='only test final epoch')
     parser.add_argument('--noautoanchor', action='store_true', help='disable autoanchor check')
     parser.add_argument('--freeze_backbone', action='store_true', default=False, help='freeze the backbone')
-    parser.add_argument('--freeze_all', action='store_true', default=False, help='freeze the backbone')
     parser.add_argument('--evolve', action='store_true', help='evolve hyperparameters')
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
     parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')
@@ -576,7 +577,7 @@ if __name__ == '__main__':
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--freeze', nargs='+', type=int, default=[0], help='Freeze layers: backbone of yolov7=50, first3=0 1 2')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
-    parser.add_argument('--process_type', default="pre", help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--process_type', default="post", help='assume maximum recall as 1.0 in AP calculation')
 
     opt = parser.parse_args()
 
@@ -663,7 +664,8 @@ if __name__ == '__main__':
                 'mosaic': (1, 0.0, 1.0),  # image mixup (probability)
                 'mixup': (1, 0.0, 1.0),   # image mixup (probability)
                 'copy_paste': (1, 0.0, 1.0),  # segment copy-paste (probability)
-                'paste_in': (1, 0.0, 1.0)}    # segment copy-paste (probability)
+                'paste_in': (1, 0.0, 1.0),
+                'loss_ota': (0, 0.0, 1.0)}    # segment copy-paste (probability)
         
         with open(opt.hyp, errors='ignore') as f:
             hyp = yaml.safe_load(f)  # load hyps dict
@@ -682,15 +684,18 @@ if __name__ == '__main__':
                 # Select parent(s)
                 parent = 'single'  # parent selection method: 'single' or 'weighted'
                 x = np.loadtxt('evolve.txt', ndmin=2)
+                print(x.shape)
                 n = min(5, len(x))  # number of previous results to consider
                 x = x[np.argsort(-fitness(x))][:n]  # top n mutations
                 w = fitness(x) - fitness(x).min()  # weights
+                print(w)
                 if parent == 'single' or len(x) == 1:
-                    # x = x[random.randint(0, n - 1)]  # random selection
-                    x = x[random.choices(range(n), weights=w)[0]]  # weighted selection
+                    x = x[random.randint(0, n - 1)]  # random selection
+                    # x = x[random.choices(range(n), weights=w)[0]]  # weighted selection
                 elif parent == 'weighted':
                     x = (x * w.reshape(n, 1)).sum(0) / w.sum()  # weighted combination
 
+                print(x.shape)
                 # Mutate
                 mp, s = 0.8, 0.2  # mutation probability, sigma
                 npr = np.random
@@ -698,9 +703,11 @@ if __name__ == '__main__':
                 g = np.array([x[0] for x in meta.values()])  # gains 0-1
                 ng = len(meta)
                 v = np.ones(ng)
+                print(v.shape, hyp.keys(), meta.keys(), len(hyp.keys()), len(meta.keys()))
                 while all(v == 1):  # mutate until a change occurs (prevent duplicates)
                     v = (g * (npr.random(ng) < mp) * npr.randn(ng) * npr.random() * s + 1).clip(0.3, 3.0)
                 for i, k in enumerate(hyp.keys()):  # plt.hist(v.ravel(), 300)
+                    print(i, k)
                     hyp[k] = float(x[i + 7] * v[i])  # mutate
 
             # Constrain to limits

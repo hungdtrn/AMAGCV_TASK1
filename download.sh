@@ -4,9 +4,9 @@ echo "Create a foler for storing downloaded files"
 mkdir ./downloaded_files
 
 echo "Download files"
-# wget http://images.cocodataset.org/zips/val2017.zip -P ./downloaded_files
-# wget http://images.cocodataset.org/annotations/annotations_trainval2017.zip -P ./downloaded_files
-# wget https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7.pt -P ./downloaded_files
+wget http://images.cocodataset.org/zips/val2017.zip -P ./downloaded_files
+wget http://images.cocodataset.org/annotations/annotations_trainval2017.zip -P ./downloaded_files
+wget https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7.pt -P ./downloaded_files
 
 echo "Extract files"
 mkdir dataset 
