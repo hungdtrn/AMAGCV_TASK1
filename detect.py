@@ -59,8 +59,8 @@ def detect(process_type, save_img=False):
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
-    if len(names) == 1 or len(names) == 80:
-        names = ["objects", "smallest", "largest"]
+    names = {0: "smallest", 1: "largest"}   
+    nc = 2
     # names = ["objects", "small", "large"]
     # print(names, hasattr(model, 'module'), model.names)
     # colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]

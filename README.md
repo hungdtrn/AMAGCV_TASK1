@@ -60,8 +60,8 @@ Where `model.pt` is the path to your model
 python detect.py --weight model.pt  --device 0 --img-size 640 --source inference/images/
 ```
 ### Some Demo
-![One-class, 5 anchors](/public/singleclass.jpg)
-![Two-class, 5 anchors](/public/twoclass.jpg)
+![Single-class, 5 anchors](/public/singleclass.jpg)
+![Single-class, 5 anchors](/public/singleclass1.jpg)
 
 ## Report
 My report is uploaded [Here](https://drive.google.com/file/d/1oup1Vg27Hom9GQ_5CPw2LniBchlQpieq/view?usp=sharing)
