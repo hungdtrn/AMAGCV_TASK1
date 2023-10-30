@@ -1,13 +1,16 @@
 # Report for Computer Vision Task: Detecting the largest and the smallest objects in Images / Videos using YOLO.
 This report outlines my approaches to fine-tune the YOLO-V7 model for detecting the largest and smallest objects in images and videos.
 
+
 ## 1. Summary
 ### 1.1. About the data
 • There is no clear distinction between smallest and largest bounding boxes. Sizes alone cannot determine this distinction.
 • Some objects are exceptionally small (as small as 0.8 pixels), making accurate labeling difficult. They were removed from the data. 
 ### 1.2. About the models
-• Fine-tuning, then post-processing: Two variants of this approach are considered: (1) Fine-tuning to detect largest and smallest boxes direct from the image (2) Fine-tune the model to detect objects in the image without distinguishing between specific objects, and subsequently select two boxes representing the smallest and largest sizes.
-• Regardless of the model, an additional post-processing step is necessary for ensuring the model only output a largest and a smallest object in the image. 
+• Fine-tuning, then post-processing: I considered two variants: 
+– (1) Fine-tune to detect largest and smallest boxes direct from the image, and then apply filtering to guarantee a single bounding box prediction per class.
+– (2) Fine-tune the model to detect objects in the image without distinguishing between specific objects, and then select two bounding boxes representing the smallest and largest sizes.
+– Model (2) yield better results in most cases.
 ## 2. Preprequisite Installation
 Install the environment
 ```
@@ -64,6 +67,5 @@ python detect.py --weight model.pt  --device 0 --img-size 640 --source inference
 ![Single-class, 5 anchors](/public/singleclass1.jpg)
 
 ## Report
-My report is uploaded [Here](https://drive.google.com/file/d/1oup1Vg27Hom9GQ_5CPw2LniBchlQpieq/view?usp=sharing)
-
-
+- PDF Report: [Link](https://drive.google.com/file/d/1oup1Vg27Hom9GQ_5CPw2LniBchlQpieq/view?usp=sharing)
+- Wandb Report: [Link](https://wandb.ai/hungdtrn/YOLOR/reports/Comparison-between-Two-class-and-Single-class-detection--Vmlldzo1ODEyNzQ2?accessToken=vzbhyk9ail6fngjq59yv74jq4hfov6a8o0gbo6s0c2t1gsvknrtx305701t0qnca)
