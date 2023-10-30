@@ -1,5 +1,5 @@
 # Report for Computer Vision Task: Detecting the largest and the smallest objects in Images / Videos using YOLO.
-This report outlines my approaches to data preparation and fine-tuning the YOLO-V7 model for detecting the largest and smallest objects in images and videos.
+This report outlines my approaches to fine-tune the YOLO-V7 model for detecting the largest and smallest objects in images and videos.
 
 ## 1. Summary
 ### 1.1. About the data
